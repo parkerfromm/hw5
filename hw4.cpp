@@ -87,7 +87,6 @@ public:
     void gamma_RA();
     void update_G();
     void make_Xuv();
-    void make_yAB();
 
     // need to determine valance electrons from the charge ( p and q maybe they are VE)
 
@@ -105,7 +104,8 @@ public:
     void run();
     void info();
     double yBA();
-    double yAB();
+
+    void make_grad();
 
 private:
     void read_basis(string filepath, int atomic_num);
@@ -114,6 +114,8 @@ private:
     void calc_basis();
     void get_s_basis();
     void read_xyz(string filepath);
+    // double yAB();
+    void y_AB();
 
     double overlap_integral_1d_analytical(double X_A, double X_B, int l_A, int l_B, double aalpha, double bbeta);
     int binomial_coefficient(int m, int n);
@@ -134,6 +136,7 @@ private:
     // double gamma_AB;
     arma::Mat<double> core_H;
     arma::Mat<double> S;
+    arma::Mat<double> yAB;
     arma::Mat<double> G;
     arma::Mat<double> Ga;
     arma::Mat<double> Gb;
@@ -153,6 +156,11 @@ private:
     arma::Mat<double> S_ry;
     arma::Mat<double> S_rz;
     arma::Mat<double> gradient;
+    arma::Mat<double> gamma_ra;
+    arma::Mat<double> gamma_rx;
+    arma::Mat<double> gamma_ry;
+    arma::Mat<double> gamma_rz;
+
     vector<vector<Function>> A_basis;
 
     double alpha_change;
@@ -238,6 +246,11 @@ CNDO2::CNDO2(string file_name)
     S_rz.set_size(N, N);
     gradient.set_size(3, num_atoms);
 
+    gamma_ra.set_size(3, pow(N, 2));
+    gamma_rx.set_size(N, N);
+    gamma_ry.set_size(N, N);
+    gamma_rz.set_size(N, N);
+    yAB.set_size(num_atoms, num_atoms);
     X.set_size(N, N);
 
     // initiate C = zero matrix
@@ -412,8 +425,10 @@ void CNDO2::calc_basis()
             }
             else
             {
+
                 nonfun.push_back(fun);
             }
+            A_basis.push_back(nonfun);
         }
 
         if (atom_num != 1)
@@ -801,7 +816,7 @@ void CNDO2::calc_P()
             double sum_beta = 0;
             for (int k = 0; k < beta; k++)
             {
-                sum_alpha += C_beta(i, k) * C_beta(j, k);
+                sum_beta += C_beta(i, k) * C_beta(j, k);
             }
             P_beta.at(i, j) = sum_beta;
         }
@@ -1083,8 +1098,8 @@ void CNDO2::calc_S()
             S.at(i, j) = 0.0;
             Function &u = basis[i];
             Function &v = basis[j];
-            cout << "u[i =" << i << "] exp size" << u.exponets.size() << endl;
-            cout << "v [j =" << j << "] exp size" << v.exponets.size() << endl;
+            // cout << "u[i =" << i << "] exp size" << u.exponets.size() << endl;
+            // cout << "v [j =" << j << "] exp size" << v.exponets.size() << endl;
 
             for (int k = 0; k < 3; k++)
             {
@@ -1368,123 +1383,304 @@ void CNDO2::make_Xuv()
             X.at(u, v) = (basis[u].B + basis[v].B) * (P_alpha(u, v) + P_beta(u, v));
         }
     }
+
+    X.print();
 }
 
-double CNDO2::yAB()
+// double CNDO2::yAB()
+// {
+
+//     vector<Function> atom_A = A_basis[0];
+//     vector<Function> atom_B = A_basis[1];
+
+//     double p_AA = 0;
+//     double p_BB = 0;
+
+//     for (int uu = 0; uu < basis.size(); uu++)
+//     {
+//         if (basis[uu].R[0] == atom_A[0].R[0] && basis[uu].R[1] == atom_A[0].R[1] && basis[uu].R[2] == atom_A[0].R[2])
+//         {
+//             p_AA += (P_alpha(uu, uu) + P_beta(uu, uu));
+//         }
+//         else
+//         {
+//             p_BB += (P_alpha(uu, uu) + P_beta(uu, uu));
+//         }
+//     }
+
+//     double y_AB = p_AA * p_BB - atom_B[0].val_elec * p_AA - atom_A[0].val_elec * p_BB;
+//     double sum = 0;
+//     for (int u = 0; u < N; u++)
+//     {
+
+//         if (basis[u].R[0] == atom_A[0].R[0] && basis[u].R[1] == atom_A[0].R[1] && basis[u].R[2] == atom_A[0].R[2])
+//         {
+//             for (int v = 0; v < N; v++)
+//             {
+//                 if (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2])
+//                 {
+//                     sum += (P_alpha(u, v) * P_alpha(u, v) + P_beta(u, v) * P_beta(u, v));
+//                 }
+//                 else
+//                 {
+//                     continue;
+//                 }
+//             }
+//         }
+//         else
+//         {
+//             continue;
+//         }
+//     }
+
+//     y_AB -= sum;
+//     return y_AB;
+// }
+
+void CNDO2::y_AB()
 {
 
-    vector<Function> atom_A = A_basis[0];
-    vector<Function> atom_B = A_basis[1];
-
-    double p_AA = 0;
-    double p_BB = 0;
-
-    for (int uu = 0; uu < basis.size(); uu++)
+    for (int i = 0; i < num_atoms; i++)
     {
-        if (basis[uu].R[0] == atom_A[0].R[0] && basis[uu].R[1] == atom_A[0].R[1] && basis[uu].R[2] == atom_A[0].R[2])
+        for (int j = 9; j < num_atoms; j++)
         {
-            p_AA += (P_alpha(uu, uu) + P_beta(uu, uu));
-        }
-        else
-        {
-            p_BB += (P_alpha(uu, uu) + P_beta(uu, uu));
-        }
-    }
+            yAB.at(i, j) = 0;
+            vector<Function> atom_A = A_basis[i];
+            vector<Function> atom_B = A_basis[j];
 
-    double y_AB = p_AA * p_BB - atom_B[0].val_elec * p_AA - atom_A[0].val_elec * p_BB;
-    double sum = 0;
-    for (int u = 0; basis.size(); u++)
-    {
-        if (basis[u].R[0] == atom_A[0].R[0] && basis[u].R[1] == atom_A[0].R[1] && basis[u].R[2] == atom_A[0].R[2])
-        {
-            for (int v = 0; v < basis.size(); v++)
+            double p_AA = P_tot(atom_A[0]);
+            double p_BB = P_tot(atom_B[0]);
+
+            // for (int uu = 0; uu < basis.size(); uu++)
+            // {
+            //     int count = 0;
+            //     if (basis[uu].R[0] == atom_A[0].R[0] && basis[uu].R[1] == atom_A[0].R[1] && basis[uu].R[2] == atom_A[0].R[2])
+            //     {
+            //         p_AA += (P_alpha(uu, uu) + P_beta(uu, uu));
+            //     }
+            //     else
+            //     {
+            //         count++;
+            //         p_BB += (P_alpha(uu, uu) + P_beta(uu, uu));
+            //     }
+
+            //     if (count == 0)
+            //     {
+            //         p_BB = p_AA;
+            //     }
+            // }
+
+            double y_AB = p_AA * p_BB - atom_B[0].val_elec * p_AA - atom_A[0].val_elec * p_BB;
+            double sum = 0;
+            for (int u = 0; u < basis.size(); u++)
             {
-                if (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2])
+                if (basis[u].R[0] == atom_A[0].R[0] && basis[u].R[1] == atom_A[0].R[1] && basis[u].R[2] == atom_A[0].R[2])
                 {
-                    sum += (P_alpha(u, v) * P_alpha(u, v) + P_beta(u, v) * P_beta(u, v));
-                }
-                else
-                {
-                    continue;
+                    for (int v = 0; v < basis.size(); v++)
+                    {
+                        if (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2])
+                        {
+                            sum += (P_alpha(u, v) * P_alpha(u, v) + P_beta(u, v) * P_beta(u, v));
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                    }
                 }
             }
-        }
-        else
-        {
-            continue;
+
+            yAB.at(i, j) = y_AB - sum;
         }
     }
+    // vector<Function> atom_A = A_basis[1];
+    // vector<Function> atom_B = A_basis[0];
 
-    y_AB -= sum;
-    return y_AB;
-}
+    // double p_AA = 0;
+    // double p_BB = 0;
 
-double CNDO2::yBA()
-{
+    // for (int uu = 0; uu < basis.size(); uu++)
+    // {
+    //     if (basis[uu].R[0] == atom_A[0].R[0] && basis[uu].R[1] == atom_A[0].R[1] && basis[uu].R[2] == atom_A[0].R[2])
+    //     {
+    //         p_AA += (P_alpha(uu, uu) + P_beta(uu, uu));
+    //     }
+    //     else
+    //     {
+    //         p_BB += (P_alpha(uu, uu) + P_beta(uu, uu));
+    //     }
+    // }
 
-    vector<Function> atom_A = A_basis[1];
-    vector<Function> atom_B = A_basis[0];
+    // double y_AB = p_AA * p_BB - atom_B[0].val_elec * p_AA - atom_A[0].val_elec * p_BB;
+    // double sum = 0;
+    // for (int u = 0; basis.size(); u++)
+    // {
+    //     if (basis[u].R[0] == atom_A[0].R[0] && basis[u].R[1] == atom_A[0].R[1] && basis[u].R[2] == atom_A[0].R[2])
+    //     {
+    //         for (int v = 0; v < basis.size(); v++)
+    //         {
+    //             if (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2])
+    //             {
+    //                 sum += (P_alpha(u, v) * P_alpha(u, v) + P_beta(u, v) * P_beta(u, v));
+    //             }
+    //             else
+    //             {
+    //                 continue;
+    //             }
+    //         }
+    //     }
+    //     else
+    //     {
+    //         continue;
+    //     }
+    // }
 
-    double p_AA = 0;
-    double p_BB = 0;
-
-    for (int uu = 0; uu < basis.size(); uu++)
-    {
-        if (basis[uu].R[0] == atom_A[0].R[0] && basis[uu].R[1] == atom_A[0].R[1] && basis[uu].R[2] == atom_A[0].R[2])
-        {
-            p_AA += (P_alpha(uu, uu) + P_beta(uu, uu));
-        }
-        else
-        {
-            p_BB += (P_alpha(uu, uu) + P_beta(uu, uu));
-        }
-    }
-
-    double y_AB = p_AA * p_BB - atom_B[0].val_elec * p_AA - atom_A[0].val_elec * p_BB;
-    double sum = 0;
-    for (int u = 0; basis.size(); u++)
-    {
-        if (basis[u].R[0] == atom_A[0].R[0] && basis[u].R[1] == atom_A[0].R[1] && basis[u].R[2] == atom_A[0].R[2])
-        {
-            for (int v = 0; v < basis.size(); v++)
-            {
-                if (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2])
-                {
-                    sum += (P_alpha(u, v) * P_alpha(u, v) + P_beta(u, v) * P_beta(u, v));
-                }
-                else
-                {
-                    continue;
-                }
-            }
-        }
-        else
-        {
-            continue;
-        }
-    }
-
-    y_AB -= sum;
-    return y_AB;
+    // y_AB -= sum;
+    // return y_AB;
 }
 
 void CNDO2::make_grad()
 {
+    make_Xuv();
+    // X.print();
+    y_AB();
+    // yAB.print();
+
     arma::Mat<double> g_a;
+    arma::Mat<double> g_b;
+    g_a.set_size(3, num_atoms);
+    g_b.set_size(3, num_atoms);
+    arma::Mat<double> g_n;
+    g_n.set_size(3, num_atoms);
 
     double sum = 0;
-    for (int u = 0; basis.size(); u++)
+
+    // for (int u = 0; u < N; u++)
+    // {
+
+    //     for (int v = 0; v < N; v++)
+    //     {
+
+    //         cout << "before seg u =  " << u << " v= " << v << endl;
+    //         double &test1 = basis[u].R[0];
+    //         double &test11 = basis[u].R[1];
+    //         double &test12 = basis[u].R[2];
+    //         cout << "yay test1" << endl;
+    //         double &test2 = basis[v].R[0];
+    //         double &test21 = basis[v].R[1];
+    //         double &test22 = basis[v].R[2];
+    //         cout << "yay test2" << endl;
+
+    //         if (basis[u].R[0] != basis[v].R[0] || basis[u].R[1] != basis[v].R[1] || basis[u].R[2] != basis[v].R[2])
+    //         {
+
+    //             cout << "yay" << endl;
+    //             g_a.at(0, 0) += S_rx(u, v) * X(u, v);
+    //             cout << "yay" << endl;
+    //             g_a.at(1, 0) += S_ry(u, v) * X(u, v);
+    //             cout << "yay" << endl;
+    //             g_a.at(2, 0) += S_rz(u, v) * X(u, v);
+    //             cout << "yay" << endl;
+    //         }
+    //         else
+    //         {
+    //             continue;
+    //         }
+    //     }
+    // }
+
+    g_a.at(0, 1) = -g_a(0, 0);
+    g_a.at(1, 1) = -g_a(1, 0);
+    g_a.at(2, 1) = -g_a(2, 0);
+
+    g_b.at(0, 0) = 0;
+    g_b.at(1, 0) = 0;
+    g_b.at(2, 0) = 0;
+    g_b.at(0, 1) = 0;
+    g_b.at(1, 1) = 0;
+    g_b.at(2, 1) = 0;
+
+    g_n.at(0, 0) = 0;
+    g_n.at(1, 0) = 0;
+    g_n.at(2, 0) = 0;
+    g_n.at(0, 1) = 0;
+    g_n.at(1, 1) = 0;
+    g_n.at(2, 1) = 0;
+
+    g_a.at(0, 0) = 0;
+    g_a.at(1, 0) = 0;
+    g_a.at(2, 0) = 0;
+    g_a.at(0, 1) = 0;
+    g_a.at(1, 1) = 0;
+    g_a.at(2, 1) = 0;
+
+    for (int i = 0; i < num_atoms; i++)
     {
-
-        for (int v = 0; v < basis.size(); v++)
+        for (int j = 0; j < num_atoms; j++)
         {
+            vector<Function> atom_A = A_basis[i];
+            vector<Function> atom_B = A_basis[j];
 
-            if (basis[u].R[0] != basis[v].R[0] || basis[u].R[1] != basis[v].R[1] || basis[u].R[2] != basis[v].R[2])
+            for (int u = 0; u < basis.size(); u++)
             {
-                g_a.at(u, v) =
+
+                if ((basis[u].R[0] == atom_A[0].R[0]) && (basis[u].R[1] == atom_A[0].R[1]) && (basis[u].R[2] == atom_A[0].R[2]))
+                {
+
+                    for (int v = 0; v < basis.size(); v++)
+                    {
+
+                        if ((basis[v].R[0] != atom_A[0].R[0] || basis[v].R[1] != atom_A[0].R[0] || basis[v].R[2] != atom_A[0].R[0]) &&
+                            (basis[v].R[0] == atom_B[0].R[0] && basis[v].R[1] == atom_B[0].R[1] && basis[v].R[2] == atom_B[0].R[2]))
+                        {
+
+                            // cout << "yay" << endl;
+                            g_a.at(0, i) += S_rx(u, v) * X(u, v);
+                            // cout << "yay" << endl;
+                            g_a.at(1, i) += S_ry(u, v) * X(u, v);
+                            // cout << "yay" << endl;
+                            g_a.at(2, i) += S_rz(u, v) * X(u, v);
+
+                            // cout << "yay" << endl;
+                        }
+                        // else
+                        // {
+                        //     continue;
+                        // }
+                    }
+                }
+            }
+
+            if ((atom_A[0].R[0] != atom_B[0].R[0]) || (atom_A[0].R[1] != atom_B[0].R[1]) || (atom_A[0].R[2] != atom_B[0].R[2]))
+            {
+                g_b.at(0, i) += yAB(i, j) * gamma_rx(i, j);
+                g_b.at(1, i) += yAB(i, j) * gamma_ry(i, j);
+                g_b.at(2, i) += yAB(i, j) * gamma_rz(i, j);
+                double dist = sqrt(pow(atom_A[0].R[0] + atom_B[0].R[0], 2) + pow(atom_A[0].R[1] + atom_B[0].R[1], 2) + pow(atom_A[0].R[2] + atom_B[0].R[2], 2));
+                g_n.at(0, i) -= atom_A[0].val_elec * atom_B[0].val_elec * ((atom_A[0].R[0] - atom_B[0].R[0]) / pow(dist, 3));
+                g_n.at(1, i) -= atom_A[0].val_elec * atom_B[0].val_elec * ((atom_A[0].R[1] - atom_B[0].R[1]) / pow(dist, 3));
+                g_n.at(2, i) -= atom_A[0].val_elec * atom_B[0].val_elec * ((atom_A[0].R[2] - atom_B[0].R[2]) / pow(dist, 3));
+            }
+            else
+            {
+                continue;
             }
         }
     }
+
+    arma::Mat<double> g_e = g_a + g_b;
+    // yAB.print();
+    cout << endl;
+    // g_a.print();
+    // g_b.print();
+    cout << "electron gradient" << endl;
+    g_e.print();
+    cout << endl;
+    cout << "nuclear gradient" << endl;
+    g_n.print();
+    cout << endl;
+    gradient = g_e + g_n;
+    gradient.print();
 }
 
 double CNDO2::total_energy()
@@ -1524,10 +1720,10 @@ double CNDO2::total_energy()
 void CNDO2 ::Suv_RA()
 {
 
-    arma::Mat<double> S_ra;
-    arma::Mat<double> S_rx;
-    arma::Mat<double> S_ry;
-    arma::Mat<double> S_rz;
+    // arma::Mat<double> S_ra;
+    // arma::Mat<double> S_rx;
+    // arma::Mat<double> S_ry;
+    // arma::Mat<double> S_rz;
 
     cout << "num cols: " << S_ra.n_cols << endl;
     cout << "num rows: " << S_ra.n_rows << endl;
@@ -1590,9 +1786,9 @@ void CNDO2 ::Suv_RA()
     S_ra.row(1) = S_ry_flat;
     S_ra.row(2) = S_rz_flat;
 
-    // S_rx.print();
-    // S_ry.print();
-    // S_rz.print();
+    S_rx.print();
+    S_ry.print();
+    S_rz.print();
 
     S_ra.print();
 }
@@ -1790,17 +1986,17 @@ void CNDO2::run()
 int main()
 {
 
-    // CNDO2 molecule = CNDO2("H2.txt");
-    // molecule.info();
-    // molecule.Suv_RA();
-    // molecule.gamma_RA();
+    CNDO2 molecule = CNDO2("H2.txt");
+    molecule.info();
+    molecule.Suv_RA();
+    molecule.gamma_RA();
+    molecule.run();
+    molecule.make_grad();
 
-    // molecule.run();
+    double energy = molecule.total_energy();
 
-    // double energy = molecule.total_energy();
-
-    // cout << endl
-    //      << "Total energy = " << energy << "." << endl;
+    cout << endl
+         << "Total energy = " << energy << "." << endl;
 
     CNDO2 molecule2 = CNDO2("HF.txt");
     molecule2.info();
@@ -1808,11 +2004,12 @@ int main()
     molecule2.gamma_RA();
 
     molecule2.run();
+    molecule2.make_grad();
 
-    double energy2 = molecule2.total_energy();
+    // double energy2 = molecule2.total_energy();
 
-    cout << endl
-         << "Total energy = " << energy2 << "." << endl;
+    // cout << endl
+    //      << "Total energy = " << energy2 << "." << endl;
 
     return 0;
 }
